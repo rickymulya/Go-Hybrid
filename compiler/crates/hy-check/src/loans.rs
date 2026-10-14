@@ -854,8 +854,29 @@ impl<'a> Checker<'a> {
             }
         }
         for v in values {
-            // O2/LOAN-ESCAPE: a borrow returned from a function
-            if as_addr_of(v).is_some() || contains_addr_of_in_literal(v) {
+            // O2/LOAN-ESCAPE: a borrow returned from a function (SPEC O2, O3)
+            let shape = self.shape_of_expr(st, v);
+            let is_borrow_shape = matches!(shape, TypeShape::BorrowHandle(_))
+                || match &shape {
+                    TypeShape::Pointer(inner) => !matches!(**inner, TypeShape::Atomic),
+                    _ => false,
+                };
+            let is_escape = as_addr_of(v).is_some()
+                || contains_addr_of_in_literal(v)
+                || is_borrow_shape
+                || v.root_ident().map_or(false, |name| {
+                    st.loans.iter().any(|loan| match &loan.target {
+                        LoanTarget::MapSlot { binding, .. } => binding == name,
+                        LoanTarget::Handle { handle, .. } => handle == name,
+                    }) || matches!(
+                        self.lookup_binding(st, name).map(|b| &b.shape),
+                        Some(TypeShape::BorrowHandle(_))
+                            | Some(TypeShape::Pointer(ref inner))
+                                if !matches!(***inner, TypeShape::Atomic)
+                    )
+                });
+
+            if is_escape {
                 let msg = "a borrow cannot be returned from a function".to_string();
                 let notes = vec![
                     format!(
