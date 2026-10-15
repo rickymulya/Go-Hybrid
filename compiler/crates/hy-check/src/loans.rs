@@ -868,12 +868,11 @@ impl<'a> Checker<'a> {
                     st.loans.iter().any(|loan| match &loan.target {
                         LoanTarget::MapSlot { binding, .. } => binding == name,
                         LoanTarget::Handle { handle, .. } => handle == name,
-                    }) || matches!(
-                        self.lookup_binding(st, name).map(|b| &b.shape),
-                        Some(TypeShape::BorrowHandle(_))
-                            | Some(TypeShape::Pointer(ref inner))
-                                if !matches!(***inner, TypeShape::Atomic)
-                    )
+                    }) || self.lookup_binding(st, name).map_or(false, |b| match &b.shape {
+                        TypeShape::BorrowHandle(_) => true,
+                        TypeShape::Pointer(inner) => !matches!(**inner, TypeShape::Atomic),
+                        _ => false,
+                    })
                 });
 
             if is_escape {
